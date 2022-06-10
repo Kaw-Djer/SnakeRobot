@@ -1,0 +1,361 @@
+/*
+   -- Snake Robot Control --
+*/
+
+// RemoteXY select connection mode and include library 
+#define REMOTEXY_MODE__ESP32CORE_WIFI_CLOUD
+#include <WiFi.h>
+#include <RemoteXY.h>
+
+// RemoteXY connection settings 
+#define REMOTEXY_WIFI_SSID "Redmi"
+#define REMOTEXY_WIFI_PASSWORD "yilan123"
+#define REMOTEXY_CLOUD_SERVER "cloud.remotexy.com"
+#define REMOTEXY_CLOUD_PORT 6376
+#define REMOTEXY_CLOUD_TOKEN "04e145e359eb3bf5fe720ba4db3ab266"
+
+
+// RemoteXY configurate  
+#pragma pack(push, 1)
+uint8_t RemoteXY_CONF[] =   // 386 bytes
+  { 255,12,0,55,0,123,1,16,13,4,131,1,4,52,21,8,1,2,31,83,
+  110,97,107,101,0,131,0,74,52,20,8,2,2,31,87,111,114,109,0,1,
+  2,27,45,18,8,1,178,67,70,79,82,87,65,82,68,0,1,2,55,45,
+  18,8,1,178,67,66,65,67,75,87,65,82,68,0,129,0,8,14,13,4,
+  1,2,83,112,101,101,100,58,0,129,0,4,21,23,4,1,2,87,97,118,
+  101,108,101,110,103,116,104,58,0,129,0,5,29,21,4,1,2,65,109,112,
+  108,105,116,117,100,101,58,0,129,0,7,38,18,4,1,2,68,105,114,101,
+  99,116,105,111,110,58,0,4,160,33,21,40,5,1,255,26,4,160,33,29,
+  40,5,1,255,26,4,160,33,37,40,5,1,255,26,4,160,33,14,40,5,
+  1,255,26,67,1,76,13,20,5,1,25,13,11,67,1,76,21,20,5,1,
+  25,13,11,67,1,76,29,20,5,1,25,13,11,67,1,76,37,20,5,1,
+  25,13,11,129,0,26,4,53,6,1,34,83,78,65,75,69,32,67,79,78,
+  84,82,79,76,0,129,0,27,5,53,6,2,34,87,79,82,77,32,67,79,
+  78,84,82,79,76,0,4,160,34,16,40,10,2,255,26,1,2,9,17,18,
+  8,2,178,67,83,84,65,82,84,0,129,0,26,33,48,4,2,189,67,79,
+  77,80,76,69,84,69,32,77,79,86,69,77,69,78,84,83,0,1,2,12,
+  41,18,8,2,178,67,82,73,78,71,0,1,2,39,41,18,8,2,178,67,
+  85,0,1,2,67,41,18,8,2,178,67,83,84,82,65,73,71,72,84,0,
+  67,1,74,18,22,6,2,25,13,11,1,2,42,53,15,7,1,178,67,83,
+  84,65,84,73,67,0 };
+  
+// this structure defines all the variables and events of your control interface 
+struct {
+
+    // input variables
+  uint8_t forwardBtn; // =1 if button pressed, else =0 
+  uint8_t backBtn; // =1 if button pressed, else =0 
+  int8_t waveLengthSld; // =-100..100 slider position 
+  int8_t amplitudeSld; // =-100..100 slider position 
+  int8_t offsetSld; // =-100..100 slider position 
+  int8_t speedSld; // =-100..100 slider position 
+  int8_t wormSld; // =-100..100 slider position 
+  uint8_t forwardWormBtn; // =1 if button pressed, else =0 
+  uint8_t ringBtn; // =1 if button pressed, else =0 
+  uint8_t UBtn; // =1 if button pressed, else =0 
+  uint8_t straightBtn; // =1 if button pressed, else =0 
+  uint8_t staticBtn; // =1 if button pressed, else =0 
+
+    // output variables
+  char speedTxt[11];  // string UTF8 end zero 
+  char waveLengthTxt[11];  // string UTF8 end zero 
+  char amplitudeTxt[11];  // string UTF8 end zero 
+  char offsetTxt[11];  // string UTF8 end zero 
+  char wormTxt[11];  // string UTF8 end zero 
+
+    // other variable
+  uint8_t connect_flag;  // =1 if wire connected, else =0 
+
+} RemoteXY;
+#pragma pack(pop)
+
+#include <Servo_ESP32.h> // Library to use for servos
+Servo_ESP32 myServos[9];   // 9 servos defined
+
+float pi=3.14159;
+int TotalNumberofServos=9;    // Total number of servos to be used
+float Shift = 2*pi/TotalNumberofServos; // Phase delay
+float Wavelengths, rads, Speed;
+int InteriorAngle, SetpointAngle, MaxAngleDisplacement;
+int Amplitude;
+int offset;
+
+void setup() 
+{
+  RemoteXY_Init (); 
+  
+  Serial.begin(115200);
+
+  myServos[0].attach(19); // The tail of the snake
+  myServos[1].attach(18);
+  myServos[2].attach(5);
+  myServos[3].attach(17);
+  myServos[4].attach(16);
+  myServos[5].attach(4);
+  myServos[6].attach(0);
+  myServos[7].attach(2);
+  myServos[8].attach(15);   // Head of snake
+
+  for(int i=0; i<10; i++){
+    myServos[i].write(90);  // Servo angles at the start of the program
+    delay(15);   // Delay given between each servo motor
+  }
+  delay(100);
+  
+}
+
+
+void straightline(){
+  for(int i=0; i<9; i++){
+    myServos[i].write(90);  // All servos were given 90 degrees
+    delay(100);             // Delay given between each servo motor
+  }
+}
+
+
+void Cshape(){
+  for(int i=0; i<9; i++){
+    myServos[i].write(60);  // All servos were given 60 degrees
+    delay(100);              // Delay given between each servo motor
+  }
+}
+
+void ubend(){
+  for(int i=0; i<9; i++){
+    if(i==3 or i==5){
+      myServos[i].write(0);  // 3th and 5th servos became 0 degrees
+      delay(100);
+    }else{
+      myServos[i].write(90); // Other servos became 90 degrees.
+      delay(100);
+    }
+  }
+}
+
+void ring(){
+  InteriorAngle = 180-360/(TotalNumberofServos+1);  // Calculation of interior angle value. Approximately 144 degrees for 9 servos
+  SetpointAngle=abs(InteriorAngle-90);     // Angle value set for ring movement. About 54 degrees for 9 servos
+  for(int i=0; i<9; i++){  
+    myServos[i].write(SetpointAngle);
+    delay(100); 
+  }
+}
+
+
+void slither(int offset, int Amplitude, float Speed, float Wavelengths){
+  MaxAngleDisplacement = abs(offset) + abs(Amplitude);  
+  while(MaxAngleDisplacement>90){                        // It was ensured that the servo rotated between 0 and 180 degrees without going outside...   
+    Amplitude = abs(Amplitude)-1;
+    MaxAngleDisplacement = abs(offset) + Amplitude;
+  }
+  for(int i=0; i<360; i++){
+    rads = i*pi/180.0;         // Degrees converted to radians
+    for(int j=0; j<9; j++){
+      myServos[j].write(90+offset+Amplitude*sin(Speed*rads+j*Wavelengths*Shift));  // Equation in motion planning
+    }
+    delay(10);
+  }
+}
+
+
+void slitherBack(int offset, int Amplitude, float Speed, float Wavelengths){
+  MaxAngleDisplacement = abs(offset) + abs(Amplitude);  
+  while(MaxAngleDisplacement>90){            // It was ensured that the servo rotated between 0 and 180 degrees without going outside...  
+    Amplitude = abs(Amplitude)-1;
+    MaxAngleDisplacement = abs(offset) + Amplitude;
+  }
+  for(int i=359; i>0; i--){
+    rads = i*pi/180.0;       // Degrees converted to radians
+    for(int j=8; j>=0; j--){
+      myServos[j].write(90+offset+Amplitude*sin(Speed*rads+j*Wavelengths*Shift));   // Equation in motion planning
+    }
+    delay(10);
+  }
+}
+
+
+void staticWave(int offset, int Amplitude, float Wavelengths){
+  MaxAngleDisplacement = abs(offset) + abs(Amplitude);  
+  while(MaxAngleDisplacement>90){     // It was ensured that the servo rotated between 0 and 180 degrees without going outside...  
+    Amplitude=abs(Amplitude)-1;
+    MaxAngleDisplacement=abs(offset)+Amplitude;
+  }
+  for(int j=0; j<9; j++){  
+    myServos[j].write(90+offset+Amplitude*sin(j*Wavelengths*Shift));
+    delay(15);
+  }
+}
+
+
+void InchWorm(){
+  for(int pos=0; pos<45; pos++){
+    //myServos[0].write(90-pos);      
+    myServos[1].write(90-pos); // The servo motor in the tail was rotated from 90 degrees to 45 degrees
+    myServos[2].write(90+2*pos);
+    myServos[3].write(90-pos);
+    delay(30);
+  }
+  for(int i=1; i<6; i++){   // Progression of the worm movement is ensured.
+    for(int pos=0; pos<45; pos++){  
+      myServos[i].write(45+pos);
+      myServos[i+1].write(180-3*pos);
+      myServos[i+2].write(45+3*pos);
+      myServos[i+3].write(90-pos);
+      delay(30);
+    }    
+  }
+  for(int pos=0; pos<45; pos++){    // The worm movement is damping.
+    myServos[6].write(45+pos);
+    myServos[7].write(180-2*pos);
+    myServos[8].write(45+pos);
+    delay(30);
+  }
+}
+
+
+void InchWormBack(){
+  for(int pos=0; pos<45; pos++){
+    myServos[8].write(90-pos);      
+    myServos[7].write(90+2*pos); 
+    myServos[6].write(90-pos);
+    delay(30);
+  }
+  for(int i=5; i>=1; i--){
+    for(int pos=0; pos<45; pos++){  
+      myServos[i].write(45+pos);
+      myServos[i+1].write(180-3*pos);
+      myServos[i+2].write(45+3*pos);
+      myServos[i+3].write(90-pos);
+      delay(30);
+    }    
+  }
+  for(int pos=0; pos<45; pos++){  
+    myServos[3].write(45+pos);
+    myServos[2].write(180-2*pos);
+    myServos[1].write(45+pos);
+    //myServos[0].write(180-2*pos);
+    delay(30);
+  }
+}
+
+void loop() 
+{ 
+  RemoteXY_Handler ();
+  
+  // OFFSET:
+  if(RemoteXY.offsetSld < -75){
+    offset = -15;
+    sprintf(RemoteXY.offsetTxt, "Left 3");
+  }
+  else if(RemoteXY.offsetSld < -50 && RemoteXY.offsetSld >= -75){
+    offset = -10;
+    sprintf(RemoteXY.offsetTxt, "Left 2");
+  }
+  else if(RemoteXY.offsetSld < -25 && RemoteXY.offsetSld >= -50){
+    offset = -5;
+    sprintf(RemoteXY.offsetTxt, "Left 1");
+  }
+  if(RemoteXY.offsetSld < 25 && RemoteXY.offsetSld >= -25){
+    offset = 0;
+    sprintf(RemoteXY.offsetTxt, "Straight");
+  }
+  else if(RemoteXY.offsetSld > 50 && RemoteXY.offsetSld <= 25){
+    offset = 5;
+    sprintf(RemoteXY.offsetTxt, "Right 1");
+  }
+  else if(RemoteXY.offsetSld > 75 && RemoteXY.offsetSld <= 50){
+    offset = 10;
+    sprintf(RemoteXY.offsetTxt, "Right 2");
+  }
+  else if(RemoteXY.offsetSld > 75){
+    offset = 15;
+    sprintf(RemoteXY.offsetTxt, "Right 3");
+  }
+
+  // SPEED:
+  if(RemoteXY.speedSld <= -50){
+    Speed = 1;
+    sprintf(RemoteXY.speedTxt, "%.2f", Speed);
+  }
+  else if(RemoteXY.speedSld > -50 && RemoteXY.speedSld <= 50){
+    Speed = 1.5;
+    sprintf(RemoteXY.speedTxt, "%.2f", Speed);
+  }
+  else if(RemoteXY.speedSld > 50){
+    Speed = 2;
+    sprintf(RemoteXY.speedTxt, "%.2f", Speed);
+  }
+
+  // WAVELENGTHS:
+  if(RemoteXY.waveLengthSld <= -50){
+    Wavelengths = 0.5;
+    sprintf(RemoteXY.waveLengthTxt, "%.2f", Wavelengths);
+  }
+  else if(RemoteXY.waveLengthSld > -50 && RemoteXY.waveLengthSld <= 50){
+    Wavelengths = 1;
+    sprintf(RemoteXY.waveLengthTxt, "%.2f", Wavelengths);
+  }
+  else if(RemoteXY.waveLengthSld > 50){
+    Wavelengths = 1.5;
+    sprintf(RemoteXY.waveLengthTxt, "%.2f", Wavelengths);
+  }
+
+  // AMPLITUDE:
+  if(RemoteXY.amplitudeSld <= -50){
+    Amplitude = 25;
+    sprintf(RemoteXY.amplitudeTxt, "%d", Amplitude);
+  }
+  else if(RemoteXY.amplitudeSld > -50 && RemoteXY.amplitudeSld <= 50){
+    Amplitude = 35;
+    sprintf(RemoteXY.amplitudeTxt, "%d", Amplitude);
+  }
+  else if(RemoteXY.amplitudeSld > 50){
+    Amplitude = 45;
+    sprintf(RemoteXY.amplitudeTxt, "%d", Amplitude);
+  }
+
+  // FORWARD:
+  if(RemoteXY.forwardBtn == 1){
+    slither(offset, Amplitude, Speed, Wavelengths);
+  }
+
+  // BACKWARD:
+  if(RemoteXY.backBtn == 1){
+    slitherBack(offset, Amplitude, Speed, Wavelengths);
+  }
+
+  // STATIC WAVE:
+  if(RemoteXY.staticBtn == 1){
+    staticWave(offset, Amplitude, Wavelengths);
+  }
+
+  // WORM:
+  if(RemoteXY.wormSld <= -50){
+    if(RemoteXY.forwardWormBtn == 1){
+      InchWormBack();
+    }
+    sprintf(RemoteXY.wormTxt, "Backward");
+  }
+  else if(RemoteXY.wormSld > 50){
+    if(RemoteXY.forwardWormBtn == 1){
+      InchWorm();
+    }
+    sprintf(RemoteXY.wormTxt, "Forward");
+  }
+  else{
+    sprintf(RemoteXY.wormTxt, "");
+  }
+
+
+  if(RemoteXY.ringBtn == 1){
+    ring();
+  }
+  if(RemoteXY.UBtn == 1){
+    ubend();
+  }
+  if(RemoteXY.straightBtn == 1){
+    straightline();
+  }
+
+
+}
